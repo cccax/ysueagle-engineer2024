@@ -1,0 +1,72 @@
+/**************************************************************************
+ * @file     	IMU_onBoard.h
+ * @brief    	板载陀螺仪磁力计读取
+ **************************************************************************/
+#ifndef _IMU_ONBOARD_
+#define _IMU_ONBOARD_
+
+#include "stm32f4xx.h"
+#include "sys.h"
+#define MPU6500     PFout(6)
+
+/*数据存储结构体声明*/
+typedef struct
+{
+	int16_t ax;
+	int16_t ay;
+	int16_t az;
+
+	int16_t temp;
+
+	int16_t gx;
+	int16_t gy;
+	int16_t gz;
+
+	int16_t mx;
+	int16_t my;
+	int16_t mz;
+
+	int16_t ax_offset;
+	int16_t ay_offset;
+	int16_t az_offset;
+
+	int16_t gx_offset;
+	int16_t gy_offset;
+	int16_t gz_offset;
+	int16_t temp_offset;
+}IMUDataTypedef;
+
+typedef struct
+{
+	int16_t ax;
+	int16_t ay;
+	int16_t az;
+
+	int16_t mx;
+	int16_t my;
+	int16_t mz;
+
+	float temp;
+
+	float wx; /*!< omiga, +- 2000dps => +-32768  so gx/16.384/57.3 =	rad/s */
+	float wy;
+	float wz;
+
+	float vx;
+	float vy;
+	float vz;
+
+	float rol;
+	float pit;
+	float yaw;
+} IMUTypedef;
+
+extern IMUDataTypedef imu_data;		//数据存储变量
+extern IMUTypedef imu_;
+uint8_t MPU6500_Init(void);			//磁力计初始化
+uint8_t IST8310_Init(void);			//陀螺仪初始化
+void IMU_Get_Data(void);			//数据读取函数
+void imu_attitude_update(void);
+void imu_ahrs_update(void);
+
+#endif

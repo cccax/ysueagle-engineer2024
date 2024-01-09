@@ -1,0 +1,55 @@
+#ifndef ROBOT_H
+#define ROBOT_H
+  //debug ∂®“Â
+#define DEBUG_GRAB							
+//#define DEBUG_GRAB_LIFT_TYPE GRAB_MOTOR_POSITION
+//#define DEBUG_GRAB_PUSHPULL_TYPE GRAB_MOTOR_RAW
+//#define DEBUG_GRAB_ROTATE_TYPE GRAB_MOTOR_POSITION
+//#define DEBUG_GRAB_PARALLEL_TYPE GRAB_MOTOR_POSITION
+//#define DEBUG_GRAB_ARMBASEY_TYPE GRAB_MOTOR_POSITION
+#define DEBUG_GRAB_ARMBASEP_TYPE GRAB_MOTOR_SPEED
+//#define DEBUG_GRAB_ARMBASEY_TYPE GRAB_MOTOR_SPEED
+
+#define DEBUG_GRAB_ARMMIDP_TYPE GRAB_MOTOR_POSITION
+#define DEBUG_GRAB_SINGLEROTATE_TYPE GRAB_MOTOR_POSITION
+#define DEBUG_GRAB_XPLAT_TYPE GRAB_MOTOR_POSITION
+#define DEBUG_GRAB_YPLAT_TYPE GRAB_MOTOR_POSITION
+#define DEBUG_LIFTORE_TYPE GRAB_MOTOR_POSITION
+
+//#define DEBUG_CHASSIS								
+//#define CHASSIS_PID_DEBUG 							
+#define DEBUG_CHSSIS_TYPE	CHASSIS_SPEED			//CHASSIS_RAW
+
+//#define DEBUG_BASIC
+
+#define GRAB_TASK_MS 3
+#define CHASSIS_TASK_MS 6
+#define BASIC_TASK_MS 10
+#define IMU_TASK_MS 5
+
+typedef enum {
+  ROBOT_ZERO_FORCE = 0,
+  ROBOT_INIT,
+  ROBOT_NORMAL,
+} robot_mode_e;
+
+typedef enum {
+  ROBOT_INIT_IMU = 0,
+  ROBOT_INIT_GRAB,
+  ROBOT_INIT_CHASSIS,
+  ROBOT_INIT_LENGTH
+} robot_init_step;
+//typedef enum {
+//	ROBOT_INIT_IMU = 0,
+//	ROBOT_INIT_CHASSIS,
+//    ROBOT_INIT_LENGTH
+//} robot_init_step;
+typedef struct {
+  robot_mode_e robotMode;
+  robot_init_step modeStep;
+} robot_information_t;
+
+extern robot_information_t robotInf;
+extern void robotInit(void);
+
+#endif

@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes" ?>
+<JScopeProject>
+    <FileVersion major="1" minor="1" />
+    <Project>
+        <Configuration>
+            <JLink>
+                <Options IsRTTSession="0" IsRTTWithTimeStamp="1" SamplingPeriod="1000" Connection="1" SerialNo="0" IP="" TargetDevice="Cortex-M4" TargetInterface="SWD" InterfaceSpeed="1000" />
+            </JLink>
+            <ElfFile Name="E:\Files\STM32\RM_Codes\YSUEagle2021_Engineer\Project\Objects\Engineer.axf" />
+            <DataFile Name="" />
+            <RawFile Name="" />
+            <Scope>
+                <Options TimeResolutionUs="1000000" />
+            </Scope>
+        </Configuration>
+        <Windows>
+            <Graph Show="1" />
+            <Watch Show="1" />
+        </Windows>
+        <SelectedSymbols>
+            <Symbol>
+                <Options Name="debugPitch" Address="0x20000020" Type="short" TypeID="11" Size="2" GraphColorRed="255" GraphColorGreen="215" GraphColorBlue="0" YMinSampled="-8187" YMaxSampled="179" YAvgSampled="-1211" Offset="4" ShowInGraph="0" YOffset="200" IsAutoConfig="0" YResolution="100" MaxValue="1" File="..\User\APP\INS_task\INS_task.c" Scope="0" DrawStyle="0" />
+            </Symbol>
+            <Symbol>
+                <Options Name="debugRoll" Address="0x20000022" Type="short" TypeID="11" Size="2" GraphColorRed="0" GraphColorGreen="255" GraphColorBlue="0" YMinSampled="-33" YMaxSampled="30723" YAvgSampled="4564" Offset="6" ShowInGraph="0" YOffset="200" IsAutoConfig="0" YResolution="100" MaxValue="1" File="..\User\APP\INS_task\INS_task.c" Scope="0" DrawStyle="0" />
+            </Symbol>
+            <Symbol>
+                <Options Name="debugYaw" Address="0x20000024" Type="short" TypeID="11" Size="2" GraphColorRed="0" GraphColorGreen="0" GraphColorBlue="255" YMinSampled="-139" YMaxSampled="7232" YAvgSampled="1070" Offset="8" ShowInGraph="0" YOffset="200" IsAutoConfig="0" YResolution="100" MaxValue="1" File="..\User\APP\INS_task\INS_task.c" Scope="0" DrawStyle="0" />
+            </Symbol>
+            <Symbol>
+                <Options Name="debugVx" Address="0x20000026" Type="short" TypeID="11" Size="2" GraphColorRed="160" GraphColorGreen="32" GraphColorBlue="240" YMinSampled="-13" YMaxSampled="17043" YAvgSampled="2530" Offset="10" ShowInGraph="1" YOffset="200" IsAutoConfig="1" YResolution="10000" MaxValue="20000" File="..\User\APP\INS_task\INS_task.c" Scope="0" DrawStyle="0" />
+            </Symbol>
+            <Symbol>
+                <Options Name="debugVy" Address="0x20000028" Type="short" TypeID="11" Size="2" GraphColorRed="255" GraphColorGreen="0" GraphColorBlue="0" YMinSampled="-12287" YMaxSampled="8" YAvgSampled="-1824" Offset="12" ShowInGraph="1" YOffset="200" IsAutoConfig="1" YResolution="10000" MaxValue="20000" File="..\User\APP\INS_task\INS_task.c" Scope="0" DrawStyle="0" />
+            </Symbol>
+            <Symbol>
+                <Options Name="debugVz" Address="0x2000002A" Type="short" TypeID="11" Size="2" GraphColorRed="0" GraphColorGreen="191" GraphColorBlue="255" YMinSampled="-4" YMaxSampled="8193" YAvgSampled="1216" Offset="14" ShowInGraph="1" YOffset="200" IsAutoConfig="1" YResolution="5000" MaxValue="10000" File="..\User\APP\INS_task\INS_task.c" Scope="0" DrawStyle="0" />
+            </Symbol>
+        </SelectedSymbols>
+    </Project>
+</JScopeProject>

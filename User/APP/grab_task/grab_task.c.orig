@@ -1,0 +1,416 @@
+#include "FreeRTOS.h"
+#include "task.h"
+#include "FreeRTOSConfig.h"
+#include "can.h"
+#include "Detect_Task.h"
+#include "user_lib.h"
+#include "oscillography.h"
+#include "grab_task.h"
+#include "grab_behaviour.h"
+
+grabCtrl_t grabTaskStructure;
+
+static fp32 motor_relative_angle_change(uint16_t ecd, uint16_t zero_ecd, u8 N);
+
+void grabBehaviourSelect(void);
+void grabCtrlChangeHandle(void);
+void grabFeedbackUpdate(grabCtrl_t *grab_feedback_update);
+void grabCanBusCtrlMotors(s16 leftgetboxCurrent, s16 rightgetboxCurrent, s16 trackmoveCurrent);
+void grabPidCalc(void);
+void grabPidInit(void);
+void grabMotorLimit(void);
+void grabBehaviourInit(grab_behaviour_t *initBehavior, grab_behaviour_e num, grab_motor_mode_e left, grab_motor_mode_e right, grab_motor_mode_e track,
+														 bool_t (*enterBehaviorCondition)(void), 
+														 bool_t (*outBehaviorCondition)(void), 
+														 void (*enterBehaviorFun)(void), 
+														 void (*outBehaviorFun)(void), 
+														 void (*behaviorHandleFun)(float *leftgetboxExp, float *rightgetboxExp, float *trackmoveExp));
+
+void grabTask(void *pvParameters)
+{
+	portTickType currentTime;
+	grabInit();
+	vTaskDelay(4);
+	currentTime = xTaskGetTickCount();
+	while(1)
+	{
+		//更新当前取弹的模式
+		grabBehaviourSelect();
+		
+		//电机模式转换处理
+		grabCtrlChangeHandle();
+		
+		//更新实际值数据
+		grabFeedbackUpdate(&grabTaskStructure);
+		
+		//更新期望值
+		float *leftExp;
+		float *rightExp;
+		float *trackmoveExp;
+		
+		if(grabTaskStructure.leftGetboxMotor.mode == grab_MOTOR_POSITION)
+		  leftExp = &(grabTaskStructure.leftGetboxMotor.nowExp);
+		else if(grabTaskStructure.leftGetboxMotor.mode == grab_MOTOR_SPEED)
+			leftExp = &(grabTaskStructure.leftGetboxMotor.speedExp);
+		else if(grabTaskStructure.leftGetboxMotor.mode == grab_MOTOR_RAW)
+			leftExp = &(grabTaskStructure.leftGetboxMotor.rawcurrentSet);
+		
+		if(grabTaskStructure.rightGetboxMotor.mode == grab_MOTOR_POSITION)
+		  rightExp = &(grabTaskStructure.rightGetboxMotor.nowExp);
+		else if(grabTaskStructure.rightGetboxMotor.mode == grab_MOTOR_SPEED)
+			rightExp = &(grabTaskStructure.rightGetboxMotor.speedExp);
+		else if(grabTaskStructure.rightGetboxMotor.mode == grab_MOTOR_RAW)
+			rightExp = &(grabTaskStructure.rightGetboxMotor.rawcurrentSet);
+		
+		if(grabTaskStructure.trackmoveMotor.mode == grab_MOTOR_POSITION)
+		  trackmoveExp = &(grabTaskStructure.trackmoveMotor.nowExp);
+		else if(grabTaskStructure.trackmoveMotor.mode == grab_MOTOR_SPEED)
+			trackmoveExp = &(grabTaskStructure.trackmoveMotor.speedExp);
+		else if(grabTaskStructure.trackmoveMotor.mode == grab_MOTOR_RAW)
+			trackmoveExp = &(grabTaskStructure.trackmoveMotor.rawcurrentSet);
+		
+		grabTaskStructure.nowBehaviour->behaviorHandleFun(leftExp, rightExp, trackmoveExp);
+		
+		//位置限制
+		grabMotorLimit();
+				
+		//更新遥控器参数
+		rcDataCopy(&(grabTaskStructure.rc.last));
+		
+		//PID计算
+		grabPidCalc();
+		
+		//can发送
+		grabCanBusCtrlMotors(grabTaskStructure.leftGetboxMotor.base_inf.given_current, grabTaskStructure.rightGetboxMotor.base_inf.given_current, grabTaskStructure.trackmoveMotor.base_inf.given_current);
+
+		//vTaskDelay(GRAB_TASK_MS);
+		vTaskDelayUntil(&currentTime, GRAB_TASK_MS);
+	}
+}
+
+void grabInit()
+{
+	/*气缸部分初始化*/
+	GPIO_InitTypeDef  GPIO_InitStructure;
+	RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOE, ENABLE);
+	RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOA, ENABLE);
+	RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOC, ENABLE);
+
+	GPIO_InitStructure.GPIO_Pin = GPIO_Pin_5;
+	GPIO_InitStructure.GPIO_Mode = GPIO_Mode_OUT;//普通输出模式
+	GPIO_InitStructure.GPIO_OType = GPIO_OType_PP;//推挽输出
+	GPIO_InitStructure.GPIO_Speed = GPIO_Speed_100MHz;//100MHz
+	GPIO_InitStructure.GPIO_PuPd = GPIO_PuPd_DOWN;//上拉
+	GPIO_Init(GPIOA, &GPIO_InitStructure);//初始化
+	
+	GPIO_InitStructure.GPIO_Pin = GPIO_Pin_3 | GPIO_Pin_4;
+	GPIO_Init(GPIOC, &GPIO_InitStructure);
+	
+	grab_pickupBox();
+	grab_armLength_close();
+	grab_allDown();
+	
+	/*传感器部分初始化*/
+	RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOI, ENABLE);
+	
+	GPIO_InitStructure.GPIO_Pin = GPIO_Pin_9; 
+	GPIO_InitStructure.GPIO_Mode = GPIO_Mode_IN;//普通输入模式
+	GPIO_InitStructure.GPIO_Speed = GPIO_Speed_100MHz;//100M
+	GPIO_InitStructure.GPIO_PuPd = GPIO_PuPd_DOWN;
+	GPIO_Init(GPIOI, &GPIO_InitStructure);
+	
+	GPIO_InitStructure.GPIO_Pin = GPIO_Pin_4;
+	GPIO_Init(GPIOA, &GPIO_InitStructure);
+	
+	GPIO_InitStructure.GPIO_Pin = GPIO_Pin_1;
+	GPIO_Init(GPIOC, &GPIO_InitStructure);
+	
+	//电机初始化
+	motorInit(&(grabTaskStructure.leftGetboxMotor.base_inf), grab_LRMOTOR_REDUCTION_RATIO);
+	motorInit(&(grabTaskStructure.rightGetboxMotor.base_inf), grab_LRMOTOR_REDUCTION_RATIO);
+	motorInit(&(grabTaskStructure.trackmoveMotor.base_inf), grab_TMMOTOR_REDUCTION_RATIO);
+	
+	//遥控器数据获取
+	grabTaskStructure.rc.now = get_remote_control_point();
+	
+	//PID初始化
+	grabPidInit();
+	
+	//行为初始化
+	grabBehaviourInit(grabTaskStructure.behaviorList + grab_DEBUG, grab_DEBUG, DEBUG_grab_LG_DEBUG, DEBUG_grab_RG_DEBUG, DEBUG_grab_TM_DEBUG, grabDebugBehaviourEnterCondition, grabDebugBehaviourOutCondition, NULL, NULL, grabDebugBehaviourHandleFun);
+  grabBehaviourInit(grabTaskStructure.behaviorList + grab_ZERO_FORCE, grab_ZERO_FORCE, grab_MOTOR_RAW, grab_MOTOR_RAW, grab_MOTOR_RAW, grabZeroForceBehaviourEnterCondition, grabZeroForceBehaviourOutCondition, NULL, NULL, grabZeroForceBehaviourHandleFun);
+  grabBehaviourInit(grabTaskStructure.behaviorList + grab_INIT, grab_INIT, grab_MOTOR_POSITION, grab_MOTOR_POSITION, grab_MOTOR_POSITION, grabInitBehaviourEnterCondition, grabInitBehaviourOutCondition, NULL, NULL, grabInitBehaviourHandleFun);
+	grabBehaviourInit(grabTaskStructure.behaviorList + grab_DOING, grab_DOING, grab_MOTOR_POSITION, grab_MOTOR_POSITION, grab_MOTOR_POSITION, grabDoingBehaviourEnterCondition, grabDoingBehaviourOutCondition, NULL, NULL, grabDoingBehaviourHandleFun);
+	grabBehaviourInit(grabTaskStructure.behaviorList + grab_NORMAL, grab_NORMAL, grab_MOTOR_POSITION, grab_MOTOR_POSITION, grab_MOTOR_POSITION, grabNormalBehaviourEnterCondition, grabNormalBehaviourOutCondition, NULL, NULL, grabNormalBehaviourHandleFun);
+		
+  grabTaskStructure.nowBehaviour = grabTaskStructure.behaviorList + grab_ZERO_FORCE;
+}
+
+void grabPidInit()
+{
+	PIDInit(&(grabTaskStructure.leftGetboxMotor.PIDParameter[INNER]), 4, 0.25, 0, 0, 14000,	0, 4000, 10000,	5000, SPEED);//left
+	PIDInit(&(grabTaskStructure.leftGetboxMotor.PIDParameter[OUTER]), 9, 0, 0, 0, 10000, 0, 0, 8191, 0, POSITION_360);
+	
+	PIDInit(&(grabTaskStructure.rightGetboxMotor.PIDParameter[INNER]), 4, 0.25, 0, 0, 14000,	0, 4000, 10000,	5000, SPEED);//rigth
+	PIDInit(&(grabTaskStructure.rightGetboxMotor.PIDParameter[OUTER]), 9, 0, 0, 0, 10000, 0, 0, 8191, 0, POSITION_360);
+	
+	PIDInit(&(grabTaskStructure.trackmoveMotor.PIDParameter[INNER]), 4, 0.25, 0, 0, 14000,	0, 4000, 10000,	5000, SPEED);//track
+	PIDInit(&(grabTaskStructure.trackmoveMotor.PIDParameter[OUTER]), 9, 0, 0, 0, 10000, 0, 0, -1, 0, POSITION_360);
+}
+
+void grabBehaviourInit(grab_behaviour_t *initBehavior, grab_behaviour_e num, grab_motor_mode_e left, grab_motor_mode_e right, grab_motor_mode_e track, bool_t (*enterBehaviorCondition)(void),\
+	bool_t (*outBehaviorCondition)(void), void (*enterBehaviorFun)(void), void (*outBehaviorFun)(void), void (*behaviorHandleFun)(float *leftgetboxExp, float *rightgetboxExp, float *trackmoveExp))
+{
+	if(initBehavior == NULL || num < 0 || num >= grab_BEHAVIOUR_LENGTH || enterBehaviorCondition == NULL || outBehaviorCondition == NULL || behaviorHandleFun == NULL)
+		return;
+	
+	initBehavior->num = num;
+	initBehavior->behaviorHandleFun = behaviorHandleFun;
+	initBehavior->enterBehaviorCondition = enterBehaviorCondition;
+	initBehavior->outBehaviorCondition = outBehaviorCondition;
+	initBehavior->enterBehaviorFun = enterBehaviorFun;
+	initBehavior->outBehaviorFun = outBehaviorFun;
+	initBehavior->leftGetmode = left;
+	initBehavior->rightGetmode = right;
+	initBehavior->trackMovemode = track;
+}
+
+void grabBehaviourSelect()
+{
+	//查看有没有优先级比当行为高的行为的进入条件得到满足
+	for(grab_behaviour_t *iterator = grabTaskStructure.behaviorList; 
+		iterator < grabTaskStructure.nowBehaviour; iterator++)
+	{ //如果有优先级高的进入行为得到满足，则进入那个行为的模式
+		if(iterator->enterBehaviorCondition())
+		{
+			grabBehaviorChange(iterator);
+			break;
+		}
+	}
+	
+	if(grabTaskStructure.nowBehaviour->outBehaviorCondition())
+	{ //查看当前行为是否已经达到了退出的条件，如果达到，则寻找下一个可以进入的行为
+		for(grab_behaviour_t *iterator = grabTaskStructure.nowBehaviour;
+			iterator < grabTaskStructure.behaviorList + grab_BEHAVIOUR_LENGTH; iterator++)
+		{ //按照优先级，如果有满足的行为，那么进入这个行为
+			if(iterator->enterBehaviorCondition())
+			{
+				grabBehaviorChange(iterator);
+				return;
+			}
+		}
+	}
+	else
+		return;
+	
+	//如果没有满足所有行为的进入条件，那么进入无力模式
+	grabBehaviorChange(grabTaskStructure.behaviorList + grab_ZERO_FORCE);
+}
+
+void grabBehaviorChange(grab_behaviour_t *next)
+{
+	//执行上一个behavior的退出函数
+	if(grabTaskStructure.nowBehaviour->outBehaviorFun != NULL)
+		grabTaskStructure.nowBehaviour->outBehaviorFun();
+	
+	//将当前行为切换成函数传入的行为
+	grabTaskStructure.nowBehaviour = next;
+	grabTaskStructure.behaviourStep = 0;
+	grabTaskStructure.leftGetboxMotor.mode = grabTaskStructure.nowBehaviour->leftGetmode;
+	grabTaskStructure.rightGetboxMotor.mode = grabTaskStructure.nowBehaviour->rightGetmode;
+	grabTaskStructure.trackmoveMotor.mode = grabTaskStructure.nowBehaviour->trackMovemode;
+	
+	//如果有进入该行为的处理函数，则执行
+	if(grabTaskStructure.nowBehaviour->enterBehaviorFun != NULL)
+		grabTaskStructure.nowBehaviour->enterBehaviorFun();
+}
+
+void grabCtrlChangeHandle() //电机控制方式改变处理函数
+{
+	static grab_motor_mode_e lastLGMode;
+	static grab_motor_mode_e lastRGMode;
+	static grab_motor_mode_e lastTMMode;
+	if(lastLGMode != grabTaskStructure.leftGetboxMotor.mode)
+	{
+		if(grabTaskStructure.leftGetboxMotor.mode == grab_MOTOR_POSITION)
+			grabTaskStructure.leftGetboxMotor.nowExp = grabTaskStructure.leftGetboxMotor.position;
+		else if(grabTaskStructure.leftGetboxMotor.mode == grab_MOTOR_SPEED)
+			grabTaskStructure.leftGetboxMotor.speedExp = 0;
+		else if(grabTaskStructure.leftGetboxMotor.mode == grab_MOTOR_RAW)
+			grabTaskStructure.leftGetboxMotor.rawcurrentSet = 0;
+		
+		lastLGMode = grabTaskStructure.leftGetboxMotor.mode;
+	}
+	
+	if(lastRGMode != grabTaskStructure.rightGetboxMotor.mode)
+	{
+		if(grabTaskStructure.rightGetboxMotor.mode == grab_MOTOR_POSITION)
+			grabTaskStructure.rightGetboxMotor.nowExp =grabTaskStructure.rightGetboxMotor.position;
+		else if(grabTaskStructure.rightGetboxMotor.mode == grab_MOTOR_SPEED)
+			grabTaskStructure.rightGetboxMotor.speedExp = 0;
+		else if(grabTaskStructure.rightGetboxMotor.mode == grab_MOTOR_RAW)
+			grabTaskStructure.rightGetboxMotor.rawcurrentSet = 0;
+		
+		lastRGMode = grabTaskStructure.rightGetboxMotor.mode;
+	}
+	
+	if(lastTMMode != grabTaskStructure.trackmoveMotor.mode)
+	{
+		if(grabTaskStructure.trackmoveMotor.mode == grab_MOTOR_POSITION)
+			grabTaskStructure.trackmoveMotor.nowExp = grabTaskStructure.trackmoveMotor.relative_ecd;
+		else if(grabTaskStructure.trackmoveMotor.mode == grab_MOTOR_SPEED)
+			grabTaskStructure.trackmoveMotor.speedExp = 0;
+		else if(grabTaskStructure.trackmoveMotor.mode == grab_MOTOR_RAW)
+			grabTaskStructure.trackmoveMotor.rawcurrentSet = 0;
+
+		lastTMMode = grabTaskStructure.trackmoveMotor.mode;
+	}
+}
+
+void grabFeedbackUpdate(grabCtrl_t *grab_feedback_update)
+{
+	//速度更新
+	grab_feedback_update->leftGetboxMotor.speed = grab_feedback_update->leftGetboxMotor.base_inf.real_speed_rpm;
+	grab_feedback_update->rightGetboxMotor.speed = grab_feedback_update->rightGetboxMotor.base_inf.real_speed_rpm;
+	grab_feedback_update->trackmoveMotor.speed = grab_feedback_update->trackmoveMotor.base_inf.real_speed_rpm;
+	
+	//位置更新
+	grab_feedback_update->leftGetboxMotor.position = grab_feedback_update->leftGetboxMotor.base_inf.real_ecd;
+	grab_feedback_update->rightGetboxMotor.position = grab_feedback_update->rightGetboxMotor.base_inf.real_ecd;
+	grab_feedback_update->trackmoveMotor.position = grab_feedback_update->trackmoveMotor.base_inf.real_ecd;
+	
+	//转轴与初始化位置相对角度 实际范围 0～2210
+	grab_feedback_update->trackmoveMotor.relative_ecd = motor_relative_angle_change(grab_feedback_update->trackmoveMotor.position, grab_feedback_update->trackmoveMotor.zero_ecd, grab_feedback_update->trackmoveMotor.rotateNum);
+	
+	//取弹电机位置期望绝对相对误差
+	grab_feedback_update->leftGetboxMotor.ARE = Absolute_Relative_Error(grab_feedback_update->leftGetboxMotor.nowExp, grab_feedback_update->leftGetboxMotor.position);
+	grab_feedback_update->rightGetboxMotor.ARE = Absolute_Relative_Error(grab_feedback_update->rightGetboxMotor.nowExp, grab_feedback_update->rightGetboxMotor.position);
+}
+
+void grabMotorLimit()
+{
+	//机械限位位置
+	loop_fp32_constrain(grabTaskStructure.leftGetboxMotor.nowExp, grabTaskStructure.leftGetboxMotor.outExp - 20, grabTaskStructure.leftGetboxMotor.normalExp + 20);
+	loop_fp32_constrain(grabTaskStructure.rightGetboxMotor.nowExp, grabTaskStructure.rightGetboxMotor.normalExp - 20, grabTaskStructure.rightGetboxMotor.outExp + 20);
+	fp32_constrain(grabTaskStructure.trackmoveMotor.nowExp, grabTaskStructure.trackmoveMotor.leftBox, grabTaskStructure.trackmoveMotor.rightBox);
+}
+
+void grabPidCalc() //PID计算函数
+{
+	if(grabTaskStructure.leftGetboxMotor.mode == grab_MOTOR_RAW)
+		grabTaskStructure.leftGetboxMotor.currentSet = grabTaskStructure.leftGetboxMotor.rawcurrentSet;
+	else if(grabTaskStructure.leftGetboxMotor.mode == grab_MOTOR_SPEED)
+	{
+		PID_Calc(&(grabTaskStructure.leftGetboxMotor.PIDParameter[INNER]), grabTaskStructure.leftGetboxMotor.speed, grabTaskStructure.leftGetboxMotor.speedExp);
+		grabTaskStructure.leftGetboxMotor.currentSet = grabTaskStructure.leftGetboxMotor.PIDParameter[INNER].output;
+	}
+	else if(grabTaskStructure.leftGetboxMotor.mode == grab_MOTOR_POSITION)
+	{
+		PID_Calc(&(grabTaskStructure.leftGetboxMotor.PIDParameter[OUTER]), grabTaskStructure.leftGetboxMotor.position, grabTaskStructure.leftGetboxMotor.nowExp);
+		grabTaskStructure.leftGetboxMotor.speedExp = grabTaskStructure.leftGetboxMotor.PIDParameter[OUTER].output;
+		PID_Calc(&(grabTaskStructure.leftGetboxMotor.PIDParameter[INNER]), grabTaskStructure.leftGetboxMotor.speed, grabTaskStructure.leftGetboxMotor.speedExp);
+		grabTaskStructure.leftGetboxMotor.currentSet = grabTaskStructure.leftGetboxMotor.PIDParameter[INNER].output;
+	}
+	
+	if(grabTaskStructure.rightGetboxMotor.mode == grab_MOTOR_RAW)
+		grabTaskStructure.rightGetboxMotor.currentSet = grabTaskStructure.rightGetboxMotor.rawcurrentSet;
+	else if(grabTaskStructure.rightGetboxMotor.mode == grab_MOTOR_SPEED)
+	{
+		PID_Calc(&(grabTaskStructure.rightGetboxMotor.PIDParameter[INNER]), grabTaskStructure.rightGetboxMotor.speed, grabTaskStructure.rightGetboxMotor.speedExp);
+		grabTaskStructure.rightGetboxMotor.currentSet = grabTaskStructure.rightGetboxMotor.PIDParameter[INNER].output;
+	}
+	else if(grabTaskStructure.rightGetboxMotor.mode == grab_MOTOR_POSITION)
+	{
+		PID_Calc(&(grabTaskStructure.rightGetboxMotor.PIDParameter[OUTER]), grabTaskStructure.rightGetboxMotor.position, grabTaskStructure.rightGetboxMotor.nowExp);
+		grabTaskStructure.rightGetboxMotor.speedExp = grabTaskStructure.rightGetboxMotor.PIDParameter[OUTER].output;
+		PID_Calc(&(grabTaskStructure.rightGetboxMotor.PIDParameter[INNER]), grabTaskStructure.rightGetboxMotor.speed, grabTaskStructure.rightGetboxMotor.speedExp);
+		grabTaskStructure.rightGetboxMotor.currentSet = grabTaskStructure.rightGetboxMotor.PIDParameter[INNER].output;
+	}
+	
+	if(grabTaskStructure.trackmoveMotor.mode == grab_MOTOR_RAW)
+		grabTaskStructure.trackmoveMotor.currentSet = grabTaskStructure.trackmoveMotor.rawcurrentSet;
+	else if(grabTaskStructure.trackmoveMotor.mode == grab_MOTOR_SPEED)
+	{
+		PID_Calc(&(grabTaskStructure.trackmoveMotor.PIDParameter[INNER]), grabTaskStructure.trackmoveMotor.speed, grabTaskStructure.trackmoveMotor.speedExp);
+		grabTaskStructure.trackmoveMotor.currentSet = grabTaskStructure.trackmoveMotor.PIDParameter[INNER].output;
+	}
+	else if(grabTaskStructure.trackmoveMotor.mode == grab_MOTOR_POSITION)
+	{
+		PID_Calc(&(grabTaskStructure.trackmoveMotor.PIDParameter[OUTER]), grabTaskStructure.trackmoveMotor.relative_ecd, grabTaskStructure.trackmoveMotor.nowExp);
+		grabTaskStructure.trackmoveMotor.speedExp = grabTaskStructure.rightGetboxMotor.PIDParameter[OUTER].output;
+		PID_Calc(&(grabTaskStructure.trackmoveMotor.PIDParameter[INNER]), grabTaskStructure.trackmoveMotor.speed, grabTaskStructure.trackmoveMotor.speedExp);
+		grabTaskStructure.trackmoveMotor.currentSet = grabTaskStructure.trackmoveMotor.PIDParameter[INNER].output;
+	}
+	
+  //类型转换限幅
+	fp32_constrain(grabTaskStructure.leftGetboxMotor.currentSet, -32768, 32767);
+	fp32_constrain(grabTaskStructure.rightGetboxMotor.currentSet, -32768, 32767);
+	fp32_constrain(grabTaskStructure.trackmoveMotor.currentSet, -32768, 32767);
+	
+	grabTaskStructure.leftGetboxMotor.base_inf.given_current = (s16)(grabTaskStructure.leftGetboxMotor.currentSet);
+	grabTaskStructure.rightGetboxMotor.base_inf.given_current = (s16)(grabTaskStructure.rightGetboxMotor.currentSet);
+	grabTaskStructure.trackmoveMotor.base_inf.given_current = (s16)(grabTaskStructure.trackmoveMotor.currentSet);
+}
+
+fp32 motor_relative_angle_change(uint16_t real_ecd, uint16_t zero_ecd, u8 N)
+{
+		static int32_t last_relative_ecd = 0;
+    int32_t relative_ecd = real_ecd - zero_ecd;
+	
+    if (relative_ecd > HALF_ECD_RANGE)
+    {
+        relative_ecd -= MAX_ECD_RANGE;
+    }
+    else if (relative_ecd < -HALF_ECD_RANGE)
+    {
+        relative_ecd += MAX_ECD_RANGE;
+    }
+
+    if (relative_ecd - last_relative_ecd < -HALF_ECD_RANGE)
+		{
+			N++;
+		}
+    else if (relative_ecd - last_relative_ecd > HALF_ECD_RANGE)
+		{
+			N--;
+		}
+		
+		last_relative_ecd = relative_ecd;
+		
+    return relative_ecd * MOTOR_ECD_TO_360 + 360 * N;
+}
+
+fp32 Absolute_Relative_Error(fp32 positionExp, uint16_t positionReal)
+{//计算电机位置期望与实际绝对相对误差
+	fp32 Err = positionReal - positionExp;
+	if(Err > 4096)
+		Err -= 8191;
+	else if(Err < -4096)
+		Err += 8191;
+	return Err;
+}
+
+u8 ifGetBox_auto()
+{
+	if(leftOver && rightOver  && !centerOver)
+		return TRUE;
+	return FALSE;
+}
+
+void grabCanBusCtrlMotors(s16 leftgetboxCurrent, s16 rightgetboxCurrent, s16 trackmoveCurrent)
+{
+	s16 grabCurrent[3];
+	grabCurrent[0] = leftgetboxCurrent;
+	grabCurrent[1] = rightgetboxCurrent;
+	grabCurrent[2] = trackmoveCurrent;
+	
+	if(toe_is_error(DBUSTOE))
+	{
+		grabCurrent[0] = 0;
+		grabCurrent[1] = 0;
+		grabCurrent[2] = 0;
+	}
+	djiMotorCurrentSendQueue(CAN2, grab_CANBUS_SEND_HEADER, grabCurrent, 3);
+}
+
+

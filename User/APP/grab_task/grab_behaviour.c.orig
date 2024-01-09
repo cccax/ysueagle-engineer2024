@@ -1,0 +1,570 @@
+#include "grab_behaviour.h"
+#include "grab_task.h"
+#include "detect_task.h"
+#include "user_lib.h"
+
+uint8_t JUDGE_ECD_READY(uint32_t ID, uint32_t SET, uint16_t range) { //判断电机是否在某值附近
+    int32_t REAL = 0;
+    switch(ID) {
+    case 0:
+        REAL = grabTaskStructure.liftMotor1.totalEcd;
+        break;
+    case 1:
+        REAL = grabTaskStructure.pushpullMotor.totalEcd;
+        break;
+    case 2:
+        REAL = grabTaskStructure.parallelMotor.totalEcd;
+        break;
+    case 3:
+        REAL = grabTaskStructure.rotateMotor.totalEcd;
+        break;
+    }
+    return (s16_abs(REAL-SET) <= range);
+}
+uint8_t JUDGE_LIFT_READY(uint32_t SET) {
+    return JUDGE_ECD_READY(0, SET, 200);
+}
+uint8_t JUDGE_PUSHPULL_READY(uint32_t SET) {
+    return JUDGE_ECD_READY(1, SET, 200);
+}
+uint8_t JUDGE_PARALLEL_READY(uint32_t SET) {
+    return JUDGE_ECD_READY(2, SET, 400);
+}
+uint8_t JUDGE_ROTATE_READY(uint32_t SET) {
+    return JUDGE_ECD_READY(3, SET, 200);
+}
+
+//----------GRAB_DEBUG----------
+void grabDebugBehaviourHandleFun(float *liftExp, float *pushpullExp, float *parallelExp, float *rotateExp)
+{
+    *liftExp = 27000*(RC_CH3_LUD_OFFSET/660.0);//均为全程
+    *pushpullExp = 19000 * (RC_CH2_LLR_OFFSET/660.0); //
+    *parallelExp = 31500 *(RC_CH0_RLR_OFFSET/660.0); //
+    *rotateExp = 4800 *(RC_CH1_RUD_OFFSET/660.0); //
+}
+
+bool_t grabDebugBehaviourEnterCondition()
+{
+#ifdef DEBUG_GRAB
+    return TRUE;
+#endif
+
+#ifndef DEBUG_GRAB
+    return FALSE;
+#endif
+}
+
+bool_t grabDebugBehaviourOutCondition()
+{
+#ifdef DEBUG_GRAB
+    return FALSE;
+#endif
+
+#ifndef DEBUG_GRAB
+    return TRUE;
+#endif
+}
+int32_t test1, test2, test3, test4;
+//----------GRAB_ZERO_FORCE----------
+void grabZeroForceBehaviourHandleFun(float *liftExp, float *pushpullExp, float *parallelExp, float *rotateExp)
+{
+    *liftExp = 0;
+    *pushpullExp = 0;
+    *parallelExp = 0;
+    *rotateExp = 0;
+		test1 = grabTaskStructure.parallelMotor.baseInf.relativeEcd;
+	test2 = grabTaskStructure.parallelMotor.totalEcdSet;
+//    test1 = grabTaskStructure.liftMotor1.baseInf.relativeEcd;
+//    test2 = grabTaskStructure.pushpullMotor.baseInf.relativeEcd;
+//    test3 = grabTaskStructure.parallelMotor.baseInf.relativeEcd;
+//    test4 = grabTaskStructure.rotateMotor.baseInf.relativeEcd;
+}
+
+bool_t grabZeroForceBehaviourEnterCondition()
+{
+//    if(	toe_is_error(DBUSTOE) || toe_is_error(DETECT_GRAB_RM1_MOTOR) || toe_is_error(DETECT_GRAB_RM2_MOTOR) || toe_is_error(DETECT_GRAB_PM1_MOTOR) ||
+//            toe_is_error(DETECT_GRAB_PM2_MOTOR) || toe_is_error(DETECT_LIFT_LM1_MOTOR) || toe_is_error(DETECT_LIFT_LM2_MOTOR) || toe_is_error(DETECT_REACH_RM_MOTOR))
+//    {
+//         return TRUE;
+//    }
+
+    if(	toe_is_error(DBUSTOE) ) return TRUE;
+
+    if(robotInf.modeStep < ROBOT_INIT_GRAB && robotInf.robotMode == ROBOT_INIT)
+    {
+        return TRUE;
+    }
+
+    if(robotInf.robotMode == ROBOT_ZERO_FORCE)
+        return TRUE;
+
+    return FALSE;
+}
+
+bool_t grabZeroForceBehaviourOutCondition()
+{
+    if(!grabZeroForceBehaviourEnterCondition())
+        //grabBehaviorChange(grabTaskStructure.behaviorList + GRAB_INIT);
+        return TRUE;
+    return FALSE;
+}
+
+
+
+//----------GRAB_INIT----------底（R）+伸（R）+卷（R）、左（R）
+void grabInitBehaviourHandleFun(float *liftExp, float *pushpullExp, float *parallelExp, float *rotateExp)
+{
+	test1 = grabTaskStructure.parallelMotor.rawCmdCurrent;
+    if(grabTaskStructure.inited) {
+        grabBehaviorChange(grabTaskStructure.behaviorList + GRAB_ZERO_FORCE);
+        return;
+    }
+    static int32_t lastEcd[] = {0,0,0,0}, stuckTime[] = {0,0,0,0}, readySign[] = {0,0,0,0}; //上次电机位置、电机停止时间、准备好标志位
+    if(grabTaskStructure.behaviourStep == 0) { //修改电机控制方式
+        grabTaskStructure.liftMotor1.mode = GRAB_MOTOR_RAW; 		//提升电机控制方式修改为：电流环
+        grabTaskStructure.pushpullMotor.mode = GRAB_MOTOR_RAW; 		//推送电机控制方式修改为：电流环
+        grabTaskStructure.rotateMotor.mode = GRAB_MOTOR_RAW; 	    //旋转电机控制方式修改为：电流环
+        grabTaskStructure.behaviourStep ++;
+    } else if(grabTaskStructure.behaviourStep == 1) { //提升、推送、旋转三电机给一定速度
+        *liftExp = -2100; //电流环 方向为下降
+        *pushpullExp = 2300; //电流环 方向为伸展
+        *rotateExp = 1600; //电流环 方向为外旋
+        grabTaskStructure.behaviourStep ++;
+    } else if(grabTaskStructure.behaviourStep == 2) { //提升、推送、旋转三电机堵转检测，若真则电流给0且视为准备好
+        for(uint8_t i=0; i<4; i++) {
+            if(i==2) continue; //忽略本次不进行的电机控制
+            switch(i) { //增加或清零停止时间
+            case 0:
+                if(JUDGE_LIFT_READY(lastEcd[i])) stuckTime[i] += GRAB_TASK_MS;
+                else stuckTime[i] = 0;
+                break;
+            case 1:
+                if(JUDGE_PUSHPULL_READY(lastEcd[i])) stuckTime[i] += GRAB_TASK_MS;
+                else stuckTime[i] = 0;
+                break;
+            case 3:
+                if(JUDGE_ROTATE_READY(lastEcd[i])) stuckTime[i] += GRAB_TASK_MS;
+                else stuckTime[i] = 0;
+                break;
+            }
+            if(stuckTime[i] >= 1000 && !readySign[i]) { //若未复位过
+                readySign[i] = 1; //准备好标志位
+                buzzerOn(50, 1, 40);
+                switch(i) {
+                case 0:
+                    grabTaskStructure.liftMotor1.mode = GRAB_MOTOR_RAW;
+                    break; //提升电机控制方式修改为：电流环
+                case 1:
+                    grabTaskStructure.pushpullMotor.mode = GRAB_MOTOR_RAW;
+                    break; //推送电机控制方式修改为：电流环
+                case 3:
+                    grabTaskStructure.rotateMotor.mode = GRAB_MOTOR_RAW;
+                    break; //旋转电机控制方式修改为：电流环
+                }
+            } else if(readySign[i]) { //若已经复位过
+                switch(i) { //电流值给0
+                case 0:
+                    grabTaskStructure.liftMotor1.rawCmdCurrent = 0;
+                    break;
+                case 1:
+                    grabTaskStructure.pushpullMotor.rawCmdCurrent = 0;
+                    break;
+                case 3:
+                    grabTaskStructure.rotateMotor.rawCmdCurrent = 0;
+                    break;
+                }
+            }
+            switch(i) { //保存电机上次位置以供比较
+            case 0:
+                lastEcd[i] = grabTaskStructure.liftMotor1.totalEcd;
+                break;
+            case 1:
+                lastEcd[i] = grabTaskStructure.pushpullMotor.totalEcd;
+                break;
+            case 3:
+                lastEcd[i] = grabTaskStructure.rotateMotor.totalEcd;
+                break;
+            }
+        }
+        if(readySign[0] && readySign[1] && readySign[3]) { //若全复位完毕
+            grabTaskStructure.liftMotor1.mode = GRAB_MOTOR_POSITION; 		//提升电机控制方式修改为：位置环
+            grabTaskStructure.pushpullMotor.mode = GRAB_MOTOR_POSITION; 	//平移电机控制方式修改为：位置环
+            grabTaskStructure.rotateMotor.mode = GRAB_MOTOR_POSITION; 	    //旋转电机控制方式修改为：位置环
+            grabTaskStructure.liftMotor1.baseInf.relativeEcd = 0;			//复位电机累计位置
+            grabTaskStructure.liftMotor2.baseInf.relativeEcd = 0;
+            grabTaskStructure.pushpullMotor.baseInf.relativeEcd = grabTaskStructure.pushpullMotor.fixedEcd[PUSHPULL_MAX_STEP];
+            grabTaskStructure.rotateMotor.baseInf.relativeEcd = grabTaskStructure.rotateMotor.fixedEcd[ROTATE_MAX_STEP];
+			grabTaskStructure.rotateMotor.totalEcdSet = 0;					//重要！
+			grabTaskStructure.pushpullMotor.totalEcdSet = 0;
+            grabTaskStructure.behaviourStep ++;
+        }
+    } else if(grabTaskStructure.behaviourStep == 3) { //修改电机控制方式
+        grabTaskStructure.liftMotor1.totalEcdSet = 0;//设置电机位置
+        grabTaskStructure.liftMotor2.totalEcdSet = 0;
+		grabTaskStructure.pushpullMotor.totalEcdSet = RAMP_float(grabTaskStructure.pushpullMotor.fixedEcd[PUSHPULL_MAX_STEP], grabTaskStructure.pushpullMotor.totalEcdSet, 3072/1000.0*GRAB_TASK_MS);
+        grabTaskStructure.rotateMotor.totalEcdSet = RAMP_float(grabTaskStructure.rotateMotor.fixedEcd[ROTATE_SUSPEND], grabTaskStructure.rotateMotor.totalEcdSet, 3072/1000.0*GRAB_TASK_MS);
+        grabTaskStructure.parallelMotor.mode = GRAB_MOTOR_RAW;        	//平移电机控制方式修改为：速度环
+		if(	JUDGE_LIFT_READY(0) &&
+			JUDGE_PARALLEL_READY(grabTaskStructure.parallelMotor.fixedEcd[PUSHPULL_MAX_STEP]) &&
+			JUDGE_ROTATE_READY(grabTaskStructure.rotateMotor.fixedEcd[ROTATE_SUSPEND]))
+			grabTaskStructure.behaviourStep ++;
+    } else if(grabTaskStructure.behaviourStep == 4) { //平移电机给一定速度
+		grabTaskStructure.parallelMotor.mode = GRAB_MOTOR_RAW;
+        grabTaskStructure.parallelMotor.rawCmdCurrent = -2900;//向右
+        grabTaskStructure.behaviourStep ++;
+    } else if(grabTaskStructure.behaviourStep == 5) { //平移电机堵转检测，若真则电流给0且视为准备好
+        if(JUDGE_PARALLEL_READY(lastEcd[2])) stuckTime[2] += GRAB_TASK_MS;
+        else stuckTime[2] = 0;
+        if(stuckTime[2] >= 700) {
+            readySign[2] = 1; //准备好标志位
+            buzzerOn(50, 1, 40);
+        }
+        lastEcd[2] = grabTaskStructure.parallelMotor.totalEcd;
+        if(readySign[2]) { //若复位完毕
+			grabTaskStructure.parallelMotor.rawCmdCurrent = 0;
+            grabTaskStructure.parallelMotor.mode = GRAB_MOTOR_POSITION; 	//平移电机控制方式修改为：位置环
+            grabTaskStructure.parallelMotor.baseInf.relativeEcd = grabTaskStructure.parallelMotor.fixedEcd[PARALLEL_RIGHT];
+			grabTaskStructure.parallelMotor.totalEcdSet = grabTaskStructure.parallelMotor.totalEcd;
+            grabTaskStructure.behaviourStep ++;
+        }
+    } else if(grabTaskStructure.behaviourStep == 6) { //平移电机复位到中间
+        grabTaskStructure.parallelMotor.totalEcdSet = RAMP_float(grabTaskStructure.parallelMotor.fixedEcd[PARALLEL_MID], grabTaskStructure.parallelMotor.totalEcdSet, 6144/1000.0*GRAB_TASK_MS);
+		if(JUDGE_PARALLEL_READY(grabTaskStructure.parallelMotor.fixedEcd[PARALLEL_MID])){
+			grabTaskStructure.rotateMotor.totalEcdSet = grabTaskStructure.rotateMotor.totalEcd;
+            grabTaskStructure.behaviourStep ++; //实际位置接近期望则切换步骤
+		}
+    } else if(grabTaskStructure.behaviourStep == 7) { //旋转电机复位到内部
+        grabTaskStructure.rotateMotor.totalEcdSet = RAMP_float(grabTaskStructure.rotateMotor.fixedEcd[ROTATE_RESET], grabTaskStructure.rotateMotor.totalEcdSet, 2048/1000.0*GRAB_TASK_MS);
+		if(JUDGE_ROTATE_READY(grabTaskStructure.rotateMotor.fixedEcd[ROTATE_RESET])){
+			grabTaskStructure.pushpullMotor.totalEcdSet = grabTaskStructure.pushpullMotor.totalEcd;
+            grabTaskStructure.behaviourStep ++; //实际位置接近期望则切换步骤
+		}
+    } else if(grabTaskStructure.behaviourStep == 8) { //推送电机复位到内部
+        grabTaskStructure.pushpullMotor.totalEcdSet = RAMP_float(grabTaskStructure.pushpullMotor.fixedEcd[PUSHPULL_RESET], grabTaskStructure.pushpullMotor.totalEcdSet, 6144/1000.0*GRAB_TASK_MS);
+		return;
+		if(JUDGE_PUSHPULL_READY(grabTaskStructure.pushpullMotor.fixedEcd[PUSHPULL_RESET]))
+            grabTaskStructure.behaviourStep ++; //实际位置接近期望则切换步骤
+    } else {
+        grabTaskStructure.inited = 1; //防止重复初始化 TODO
+        robotInf.modeStep = (robot_init_step)(ROBOT_INIT_GRAB + 1);
+    }
+}
+
+
+bool_t grabInitBehaviourEnterCondition()
+{
+    if(robotInf.modeStep == ROBOT_INIT_GRAB && robotInf.robotMode == ROBOT_INIT && !grabTaskStructure.inited)
+        return TRUE;
+    return FALSE;
+}
+
+bool_t grabInitBehaviourOutCondition()
+{
+    if(grabInitBehaviourEnterCondition())
+        return FALSE;
+    return TRUE;
+}
+
+//----------GRAB_PREPARE----------准备模式
+void grabPrepareBehaviourHandleFun(float *liftExp, float *pushpullExp, float *parallelExp, float *rotateExp)
+{
+    grabTaskStructure.behaviourTime += GRAB_TASK_MS;//计时
+    if(grabTaskStructure.behaviourStep == 0) { //提升/推送/旋转到预备位置
+        switch(grabTaskStructure.currentTarget) { //根据目标设定斜坡期望
+        case TARGET_SMALL_ISLAND:
+            *liftExp = RAMP_float(grabTaskStructure.liftMotor1.fixedEcd[LIFT_SMALL_ISLAND], *liftExp, 1024/1000.0*GRAB_TASK_MS);//提升到目标高度
+            *pushpullExp = RAMP_float(grabTaskStructure.pushpullMotor.fixedEcd[PUSHPULL_SMALL_ISLAND], *pushpullExp, 1024/1000.0*GRAB_TASK_MS);//推送到目标长度
+            *rotateExp = RAMP_float(grabTaskStructure.rotateMotor.fixedEcd[ROTATE_SUSPEND], *rotateExp, 2048/1000.0*GRAB_TASK_MS);//旋转到抓取等待位置
+            break; //目标为小资源岛
+        case TARGET_BIG_ISLAND:
+            *liftExp = RAMP_float(grabTaskStructure.liftMotor1.fixedEcd[LIFT_BIG_ISLAND], *liftExp, 1024/1000.0*GRAB_TASK_MS);//提升到目标高度
+            *pushpullExp = RAMP_float(grabTaskStructure.pushpullMotor.fixedEcd[PUSHPULL_BIG_ISLAND], *pushpullExp, 1024/1000.0*GRAB_TASK_MS);//推送到目标长度
+            *rotateExp = RAMP_float(grabTaskStructure.rotateMotor.fixedEcd[ROTATE_SUSPEND], *rotateExp, 2048/1000.0*GRAB_TASK_MS);//旋转到抓取等待位置
+            break; //目标为大资源岛
+        case TARGET_EXCH_STA:
+            *liftExp = RAMP_float(grabTaskStructure.liftMotor1.fixedEcd[LIFT_EXCH_STA], *liftExp, 1024/1000.0*GRAB_TASK_MS);//提升到目标高度
+            *pushpullExp = RAMP_float(grabTaskStructure.pushpullMotor.fixedEcd[PUSHPULL_EXCH_STA], *pushpullExp, 1024/1000.0*GRAB_TASK_MS);//推送到目标长度
+            break; //目标为兑换区
+        default:
+            break;
+        }
+        switch(grabTaskStructure.currentTarget) { //实际位置接近期望则切换步骤
+        case TARGET_SMALL_ISLAND:
+            if(	(JUDGE_LIFT_READY(grabTaskStructure.liftMotor1.fixedEcd[LIFT_SMALL_ISLAND])) &&
+                    (JUDGE_PUSHPULL_READY(grabTaskStructure.pushpullMotor.fixedEcd[PUSHPULL_SMALL_ISLAND])) &&//PUSHPULL_SMALL_ISLAND
+                    (JUDGE_ROTATE_READY(grabTaskStructure.rotateMotor.fixedEcd[ROTATE_SUSPEND])) ) grabTaskStructure.behaviourStep = 1;
+            break; //目标为小资源岛
+        case TARGET_BIG_ISLAND:
+            if(	(JUDGE_LIFT_READY(grabTaskStructure.liftMotor1.fixedEcd[LIFT_BIG_ISLAND])) &&
+                    (JUDGE_PUSHPULL_READY(grabTaskStructure.pushpullMotor.fixedEcd[PUSHPULL_SMALL_ISLAND])) &&//PUSHPULL_BIG_ISLAND
+                    (JUDGE_ROTATE_READY(grabTaskStructure.rotateMotor.fixedEcd[ROTATE_SUSPEND])) ) grabTaskStructure.behaviourStep = 2;
+            break; //目标为大资源岛
+        case TARGET_EXCH_STA:
+            if(	(JUDGE_LIFT_READY(grabTaskStructure.liftMotor1.fixedEcd[LIFT_EXCH_STA])) &&
+                    (JUDGE_PUSHPULL_READY(grabTaskStructure.pushpullMotor.fixedEcd[PUSHPULL_SMALL_ISLAND])) ) grabTaskStructure.behaviourStep = 3;
+            break; //目标为兑换区
+        default:
+            break;
+        }
+        //if(grabTaskStructure.behaviourTime > 5e3 && grabTaskStructure.behaviourTime % (GRAB_TASK_MS * 2000) == 0) buzzerOn(300, 6, 30); //超时蜂鸣提示
+    } else if(grabTaskStructure.behaviourStep == 1) { //进入抓取模式-小资源岛
+        grabBehaviorChange(grabTaskStructure.behaviorList + GRAB_TAKE);
+        VALVE_FASTEN_OFF;
+    } else if(grabTaskStructure.behaviourStep == 2) { //进入抓取模式-大资源岛
+        grabBehaviorChange(grabTaskStructure.behaviorList + GRAB_TAKE);
+        VALVE_FASTEN_OFF;
+    } else if(grabTaskStructure.behaviourStep == 3) { //进入抓取模式-兑换区
+        grabBehaviorChange(grabTaskStructure.behaviorList + GRAB_EXCHANGE);
+        VALVE_FASTEN_OFF;
+    }
+}
+
+bool_t grabPrepareBehaviourEnterCondition()
+{
+    return FALSE;//禁止自动进入
+}
+
+bool_t grabPrepareBehaviourOutCondition()
+{
+    return FALSE;//禁止自动退出
+}
+
+//----------GRAB_TAKE----------抓取模式
+void grabTakeBehaviourHandleFun(float *liftExp, float *pushpullExp, float *parallelExp, float *rotateExp)
+{
+    grabTaskStructure.behaviourTime += GRAB_TASK_MS;//计时
+    if(grabTaskStructure.behaviourStep == 0) { //平移到预期位置
+        switch(grabTaskStructure.collectedOre) { //根据目标设定斜坡期望
+        case 0:
+            *parallelExp = RAMP_float(grabTaskStructure.parallelMotor.fixedEcd[PARALLEL_BOXL], *parallelExp, 2048/1000.0*GRAB_TASK_MS);
+            break; //平移到左箱子位置 *取矿石1
+        case 1:
+            *parallelExp = RAMP_float(grabTaskStructure.parallelMotor.fixedEcd[PARALLEL_BOXR], *parallelExp, 2048/1000.0*GRAB_TASK_MS);
+            break; //平移到右箱子位置 *取矿石2
+        case 2:
+            *parallelExp = RAMP_float(grabTaskStructure.parallelMotor.fixedEcd[PARALLEL_MID], *parallelExp, 2048/1000.0*GRAB_TASK_MS);
+            break; //平移到中间位置 *取矿石3
+        }
+        switch(grabTaskStructure.collectedOre) { //实际位置接近期望则切换步骤
+        case 0:
+            if(JUDGE_PARALLEL_READY(grabTaskStructure.parallelMotor.fixedEcd[PARALLEL_BOXL])) grabTaskStructure.behaviourStep ++;
+            break; //平移到左箱子位置 *取矿石1
+        case 1:
+            if(JUDGE_PARALLEL_READY(grabTaskStructure.parallelMotor.fixedEcd[PARALLEL_BOXR])) grabTaskStructure.behaviourStep ++;
+            break; //平移到右箱子位置 *取矿石2
+        case 2:
+            if(JUDGE_PARALLEL_READY(grabTaskStructure.parallelMotor.fixedEcd[PARALLEL_MID])) grabTaskStructure.behaviourStep ++;
+            break; //平移到中间位置 *取矿石3
+        }
+        //if(grabTaskStructure.behaviourTime > 5e3 && grabTaskStructure.behaviourTime % (GRAB_TASK_MS * 1000) == 0) buzzerOn(300, 6, 30); //超时蜂鸣提示
+    } else if(grabTaskStructure.behaviourStep == 1) { //等待光电传感器识别位置
+//        if(!JUDGE_SENSORL && JUDGE_SENSORM && !JUDGE_SENSORR) { //到位则切换步骤 TODO:按实际情况修改
+//            buzzerOn(100, 3, 19);
+//            grabTaskStructure.behaviourStep ++;
+//        }
+        if(GRAB_FIRST_PRESS_X) {
+            buzzerOn(100, 3, 19);
+            grabTaskStructure.behaviourStep ++;
+        }
+    } else if(grabTaskStructure.behaviourStep == 2) { //旋转到抓取位置
+        *rotateExp = RAMP_float(grabTaskStructure.rotateMotor.fixedEcd[ROTATE_CATCH], *rotateExp, 4096/1000.0*GRAB_TASK_MS);
+        if(JUDGE_ROTATE_READY(grabTaskStructure.rotateMotor.fixedEcd[ROTATE_CATCH])) {
+            grabTaskStructure.behaviourTime = 0; //下一步时间清零
+            grabTaskStructure.behaviourStep ++; //实际位置接近期望则切换步骤
+        }
+    } else if(grabTaskStructure.behaviourStep == 3) { //抓取
+        VALVE_GRAB_ON;
+        if(grabTaskStructure.behaviourTime > 200) { //超时则切换步骤
+            if(grabTaskStructure.collectedOre == 2) grabTaskStructure.behaviourStep = 7; //**特殊**：最后一次取矿跳跃步骤
+            else grabTaskStructure.behaviourStep ++;
+        }
+    } else if(grabTaskStructure.behaviourStep == 4) { //旋转到放置位置
+        *rotateExp = RAMP_float(grabTaskStructure.rotateMotor.fixedEcd[ROTATE_RELEASE], *rotateExp, 4096/1000.0*GRAB_TASK_MS);
+        if(JUDGE_ROTATE_READY(grabTaskStructure.rotateMotor.fixedEcd[ROTATE_RELEASE])) {
+            grabTaskStructure.behaviourTime = 0; //时间清零
+            grabTaskStructure.behaviourStep ++; //实际位置接近期望则切换步骤
+        }
+    } else if(grabTaskStructure.behaviourStep == 5) { //释放
+        VALVE_GRAB_OFF;
+        if(grabTaskStructure.behaviourTime > 200) grabTaskStructure.behaviourStep ++;
+    } else if(grabTaskStructure.behaviourStep == 6) { //旋转到等待抓取位置
+        *rotateExp = RAMP_float(grabTaskStructure.rotateMotor.fixedEcd[ROTATE_SUSPEND], *rotateExp, 4096/1000.0*GRAB_TASK_MS);
+        if(JUDGE_ROTATE_READY(grabTaskStructure.rotateMotor.fixedEcd[ROTATE_SUSPEND])) { //完成一次取矿 实际位置接近期望则切换步骤
+            grabTaskStructure.collectedOre ++;
+            grabTaskStructure.behaviourStep = 0; //复位到第一步
+        }
+    } else if(grabTaskStructure.behaviourStep == 7) { //**特殊**：旋转到叠加块放置位置
+        *rotateExp = RAMP_float(grabTaskStructure.rotateMotor.fixedEcd[ROTATE_SUSPEND], *rotateExp, 4096/1000.0*GRAB_TASK_MS);
+        if(JUDGE_ROTATE_READY(grabTaskStructure.rotateMotor.fixedEcd[ROTATE_SUSPEND])) { //完成一次取矿 实际位置接近期望则切换步骤
+            grabTaskStructure.collectedOre ++;
+            grabTaskStructure.behaviourStep ++; //无待做步骤
+        }
+    }
+    if(grabTaskStructure.collectedOre == 3) { //取到三个矿石回正常模式
+        grabBehaviorChange(grabTaskStructure.behaviorList + GRAB_NORMAL);
+        VALVE_FASTEN_ON;
+    }
+}
+
+bool_t grabTakeBehaviourEnterCondition()
+{
+    return FALSE;//禁止自动进入
+}
+
+bool_t grabTakeBehaviourOutCondition()
+{
+    return FALSE;//禁止自动退出
+}
+
+//----------GRAB_EXCHANGE----------兑换模式
+void grabExchangeBehaviourHandleFun(float *liftExp, float *pushpullExp, float *parallelExp, float *rotateExp)
+{
+    grabTaskStructure.behaviourTime += GRAB_TASK_MS;//计时
+    if(grabTaskStructure.behaviourStep == 0) { //平移到预期位置
+        switch(grabTaskStructure.collectedOre) { //根据目标设定斜坡期望
+        case 3:
+            grabTaskStructure.behaviourStep = 3;
+            break; //**特殊**：直接 兑矿石3
+        case 2:
+            *parallelExp = RAMP_float(grabTaskStructure.parallelMotor.fixedEcd[PARALLEL_BOXR], *parallelExp, 2048/1000.0*GRAB_TASK_MS);
+            break; //平移到右矿石位置 兑矿石2
+        case 1:
+            *parallelExp = RAMP_float(grabTaskStructure.parallelMotor.fixedEcd[PARALLEL_BOXL], *parallelExp, 2048/1000.0*GRAB_TASK_MS);
+            break; //平移到左矿石位置 兑矿石1
+        default:
+            break;
+        }
+        switch(grabTaskStructure.collectedOre) { //实际位置接近期望则切换步骤
+        case 3:
+            grabTaskStructure.behaviourStep = 3;
+            break; //特殊：直接 兑矿石3
+        case 2:
+            if(JUDGE_PARALLEL_READY(grabTaskStructure.parallelMotor.fixedEcd[PARALLEL_BOXR])) grabTaskStructure.behaviourStep ++;
+            break; //平移到右矿石位置 取矿石2
+        case 1:
+            if(JUDGE_PARALLEL_READY(grabTaskStructure.parallelMotor.fixedEcd[PARALLEL_BOXL])) grabTaskStructure.behaviourStep ++;
+            break; //平移到左矿石位置 兑矿石1
+        default:
+            break;
+        }
+        //if(grabTaskStructure.behaviourTime > 5e3 && grabTaskStructure.behaviourTime % (GRAB_TASK_MS * 1000) == 0) buzzerOn(300, 6, 30); //超时蜂鸣提示
+    } else if(grabTaskStructure.behaviourStep == 1) { //旋转到放置位置
+        *rotateExp = RAMP_float(grabTaskStructure.rotateMotor.fixedEcd[ROTATE_RELEASE], *rotateExp, 4096/1000.0*GRAB_TASK_MS);
+        if(JUDGE_ROTATE_READY(grabTaskStructure.rotateMotor.fixedEcd[ROTATE_RELEASE])) {
+            grabTaskStructure.behaviourTime = 0; //时间清零
+            grabTaskStructure.behaviourStep ++; //实际位置接近期望则切换步骤
+        }
+    } else if(grabTaskStructure.behaviourStep == 2) { //抓取
+        VALVE_GRAB_ON;
+        if(grabTaskStructure.behaviourTime > 200) //超时则切换步骤
+            grabTaskStructure.behaviourStep ++;
+    } else if(grabTaskStructure.behaviourStep == 3) { //旋转到抓取（兑换）位置
+        *rotateExp = RAMP_float(grabTaskStructure.rotateMotor.fixedEcd[ROTATE_CATCH], *rotateExp, 4096/1000.0*GRAB_TASK_MS);
+        if(JUDGE_ROTATE_READY(grabTaskStructure.rotateMotor.fixedEcd[ROTATE_CATCH])) {
+            grabTaskStructure.behaviourTime = 0; //时间清零
+            grabTaskStructure.behaviourStep ++; //实际位置接近期望则切换步骤
+        }
+    } else if(grabTaskStructure.behaviourStep == 4) { //释放
+        VALVE_GRAB_OFF;
+        if(GRAB_FIRST_S2_MID || GRAB_FIRST_PRESS_C) grabTaskStructure.behaviourStep ++; //手动：操作手操作右中则推走
+    } else if(grabTaskStructure.behaviourStep == 5) { //推走
+        VALVE_PUSH_ON;
+        if(GRAB_FIRST_S2_DOWN || GRAB_FIRST_PRESS_C) {
+            grabTaskStructure.behaviourTime = 0; //时间清零
+            grabTaskStructure.behaviourStep ++; //手动：操作手操作右下则收回
+        }
+    } else if(grabTaskStructure.behaviourStep == 6) { //收回
+        VALVE_PUSH_OFF;
+        if(grabTaskStructure.behaviourTime > 200) { //超时则切换步骤
+            if(grabTaskStructure.collectedOre) grabTaskStructure.collectedOre --; //完成一次兑换
+            grabTaskStructure.behaviourStep ++;
+        }
+    } else if(grabTaskStructure.behaviourStep == 7) {
+        if(grabTaskStructure.collectedOre) { //有剩余矿石
+            *rotateExp = RAMP_float(grabTaskStructure.rotateMotor.fixedEcd[ROTATE_SUSPEND], *rotateExp, 4096/1000.0*GRAB_TASK_MS); //旋转到收起位置
+            if(JUDGE_ROTATE_READY(grabTaskStructure.rotateMotor.fixedEcd[ROTATE_SUSPEND])) //实际位置接近期望则切换步骤
+                grabTaskStructure.behaviourStep = 0; //复位到第一步
+        } else { //无剩余矿石
+            *rotateExp = RAMP_float(grabTaskStructure.rotateMotor.fixedEcd[ROTATE_RESET], *rotateExp, 4096/1000.0*GRAB_TASK_MS); //旋转到收起位置
+            if(JUDGE_ROTATE_READY(grabTaskStructure.rotateMotor.fixedEcd[ROTATE_RESET])) //实际位置接近期望则切换步骤
+                grabTaskStructure.behaviourStep ++; //无待做步骤
+        }
+    }
+    if(grabTaskStructure.collectedOre == 0) { //兑换完自动回正常模式
+        grabBehaviorChange(grabTaskStructure.behaviorList + GRAB_NORMAL);
+        VALVE_FASTEN_OFF;
+    }
+}
+
+bool_t grabExchangeBehaviourEnterCondition()
+{
+    return FALSE;//禁止自动进入
+}
+
+bool_t grabExchangeBehaviourOutCondition()
+{
+    grabBehaviorChange(grabTaskStructure.behaviorList + GRAB_NORMAL);
+    return FALSE;//禁止自动退出
+}
+
+//----------GRAB_NORMAL----------
+void grabNormalBehaviourHandleFun(float *liftExp, float *pushpullExp, float *parallelExp, float *rotateExp)
+{
+    grabTaskStructure.behaviourTime += GRAB_TASK_MS; //计时
+    //if(grabTaskStructure.currentTarget != TARGET_NONE) { //完成任务后复位
+    if(0) {
+        if(!JUDGE_PARALLEL_READY(grabTaskStructure.parallelMotor.fixedEcd[PARALLEL_MID])) { //平移电机是否在中间位置（防止干涉）
+            *parallelExp = RAMP_float(grabTaskStructure.parallelMotor.fixedEcd[PARALLEL_MID], *parallelExp, 2048/1000.0*GRAB_TASK_MS);
+        } else {
+            *parallelExp = grabTaskStructure.parallelMotor.totalEcd;//定住
+            *liftExp = RAMP_float(grabTaskStructure.liftMotor1.fixedEcd[LIFT_RESET], *liftExp, 1024/1000.0*GRAB_TASK_MS);//提升到目标高度
+            *pushpullExp = RAMP_float(grabTaskStructure.pushpullMotor.fixedEcd[PUSHPULL_RESET], *pushpullExp, 1024/1000.0*GRAB_TASK_MS);//推送到目标长度
+        }
+        if( (JUDGE_PARALLEL_READY(grabTaskStructure.parallelMotor.fixedEcd[PARALLEL_MID])) &&
+                (JUDGE_LIFT_READY(grabTaskStructure.liftMotor1.fixedEcd[LIFT_RESET])) &&
+                (JUDGE_PUSHPULL_READY(grabTaskStructure.pushpullMotor.fixedEcd[PUSHPULL_RESET]))) grabTaskStructure.currentTarget = TARGET_NONE; //实际位置接近期望则切换步骤
+    } else {
+        if(1) { //左下：提升高度控制（左拨杆上下）
+            //*liftExp += 0.001*RC_CH3_LUD_OFFSET;
+
+            static uint8_t mvSign = 1;
+            static int32_t lastExp = 0;
+            if(mvSign) {
+                *liftExp += 0.1*RC_CH3_LUD_OFFSET; //移动标志位为真时更改期望
+                if(IF_KEY_PRESSED_SHIFT) *liftExp += 10;
+                else if(IF_KEY_PRESSED_CTRL) *liftExp -= 10;
+                //else *liftExp = 0;
+            }
+            if(*liftExp < -100) *liftExp = -100;
+            if(*liftExp > grabTaskStructure.liftMotor1.fixedEcd[LIFT_MAX_STEP]) *liftExp = grabTaskStructure.liftMotor1.fixedEcd[LIFT_MAX_STEP];
+            if((RC_CH3_LUD_OFFSET != 0) && ((*liftExp > grabTaskStructure.liftMotor1.fixedEcd[LIFT_OBSTACLE] && lastExp < grabTaskStructure.liftMotor1.fixedEcd[LIFT_OBSTACLE]) || (lastExp > grabTaskStructure.liftMotor1.fixedEcd[LIFT_OBSTACLE] && *liftExp < grabTaskStructure.liftMotor1.fixedEcd[LIFT_OBSTACLE]))) {
+                lastExp = *liftExp;
+                mvSign = 0; //拉住拨杆不放且在特殊位置时暂停
+            }
+            else if(GRAB_FIRST_CH3_MID) mvSign = 1; //拨杆回中后允许继续移动
+
+            *pushpullExp = 15000;
+        }
+    }
+}
+
+bool_t grabNormalBehaviourEnterCondition()
+{
+    return FALSE;//允许自动进入
+}
+
+bool_t grabNormalBehaviourOutCondition()
+{
+    if(GRAB_FIRST_S1_UP && IF_RC_SW2_UP) {										//S1上 S2上 小资源岛
+        grabBehaviorChange(grabTaskStructure.behaviorList + GRAB_PREPARE);
+        grabTaskStructure.currentTarget = TARGET_SMALL_ISLAND;
+    } else if(GRAB_FIRST_S1_UP && IF_RC_SW2_MID) {								//S1上 S2中 大资源岛
+        grabBehaviorChange(grabTaskStructure.behaviorList + GRAB_PREPARE);
+        grabTaskStructure.currentTarget = TARGET_BIG_ISLAND;
+    } else if(GRAB_FIRST_S1_UP && IF_RC_SW2_DOWN) {								//S1上 S2下 兑换站
+        grabBehaviorChange(grabTaskStructure.behaviorList + GRAB_PREPARE);
+        grabTaskStructure.currentTarget = TARGET_EXCH_STA;
+    }
+
+    return FALSE;
+}

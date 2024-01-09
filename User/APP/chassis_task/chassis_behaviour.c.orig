@@ -1,0 +1,171 @@
+#include "chassis_behaviour.h"
+#include "detect_task.h"
+#include "robot.h"
+#include "ore_task.h"
+#include "chassis_task.h"
+#include "Remote_Control.h"
+
+//----------CHASSIS_DEBUG----------
+bool_t enterChassisDebugCondition()
+{
+#ifdef DEBUG_CHASSIS
+    return TRUE;
+#endif
+
+#ifndef DEBUG_CHASSIS
+    return FALSE;
+#endif
+}
+
+bool_t outChassisDebugCondition()
+{
+#ifdef DEBUG_CHASSIS
+    return FALSE;
+#endif
+
+#ifndef DEBUG_CHASSIS
+    return TRUE;
+#endif
+}
+
+void chassisDebugHandleFun(float *vx, float *vy, float *vz, float *none)
+{
+    if(vx == NULL || vy == NULL || vz == NULL)
+        return;
+    if(toe_is_error(DBUSTOE))
+    {
+        *vx = 0;
+        *vy = 0;
+        *vz = 0;
+        return;
+    }
+    *vx = 800*(RC_CH1_RUD_OFFSET/660.0);
+}
+
+//----------CHASSIS_ZERO_FORCE----------
+bool_t enterZeroForceCondition()
+{
+    if(toe_is_error(DBUSTOE) || toe_is_error(DETECT_CHASSIS_CM1_MOTOR) || toe_is_error(DETECT_CHASSIS_CM2_MOTOR) || toe_is_error(DETECT_CHASSIS_CM3_MOTOR) || toe_is_error(DETECT_CHASSIS_CM4_MOTOR))
+    {//底盘电机离线
+        return TRUE;
+    }
+    else if(robotInf.modeStep < ROBOT_INIT_CHASSIS && robotInf.robotMode == ROBOT_INIT)
+    {//初始化前
+        return TRUE;
+    }
+    else if(robotInf.robotMode == ROBOT_ZERO_FORCE)
+        return TRUE;
+    return FALSE;
+}
+
+bool_t outZeroForceCondition()
+{
+    if(enterZeroForceCondition())
+        return FALSE;
+    return TRUE;
+}
+
+void zeroForceHandleFun(float *raw_cm1, float *raw_cm2, float *raw_cm3, float *raw_cm4)
+{
+    *raw_cm1 = 0;
+    *raw_cm2 = 0;
+    *raw_cm3 = 0;
+    *raw_cm4 = 0;
+}
+
+//----------CHASSIS_INIT----------
+bool_t enterChassisInitCondition()
+{
+    if(robotInf.modeStep == ROBOT_INIT_CHASSIS && robotInf.robotMode == ROBOT_INIT)
+        return TRUE;
+    return FALSE;
+}
+
+bool_t outChassisInitCondition()
+{
+    if(enterChassisInitCondition())
+        return FALSE;
+    return TRUE;
+}
+
+void chassisInitHandleFun(float *raw_cm1, float *raw_cm2, float *raw_cm3, float *raw_cm4)
+{
+    *raw_cm1 = 0;
+    *raw_cm2 = 0;
+    *raw_cm3 = 0;
+    *raw_cm4 = 0;
+    robotInf.modeStep = (robot_init_step)(ROBOT_INIT_CHASSIS + 1);
+}
+
+//----------CHASSIS_SLEEP----------
+bool_t enterChassisSleepCondition()
+{
+    if(gimbalTaskStructure.nowBehaviorName == SMALL_BUFF || gimbalTaskStructure.nowBehaviorName == BIG_BUFF)
+    {
+        return TRUE;
+    }
+    return FALSE;
+}
+
+bool_t outChassisSleepCondition()
+{
+    if(gimbalTaskStructure.nowBehaviorName == SMALL_BUFF || gimbalTaskStructure.nowBehaviorName == BIG_BUFF)
+    {
+        return FALSE;
+    }
+    return TRUE;
+}
+
+void chassisSleepHandleFun(float* vx, float* vy, float* vz, float *none)
+{
+    if(vx == NULL || vy == NULL || vz == NULL)
+        return;
+    *vx = 0;
+    *vy = 0;
+    *vz = 0;
+}
+
+//----------CHASSIS_ALONE----------
+bool_t enterChassisAloneCondition()
+{
+    if(IF_RC_SW1_UP && CHASSIS_FIRST_S2_DOWN)
+        return TRUE;
+    return FALSE;
+}
+bool_t outChassisAloneCondition()
+{
+    if(IF_RC_SW1_UP && !IF_RC_SW2_DOWN)
+        return TRUE;
+    return FALSE;
+}/*
+void chassisAloneHandleFun(float* vx, float *vy, float* vz, float* none)
+{
+    *vx = CHASSIS_NORMAL_MAX_VX*(RC_CH1_RUD_OFFSET/660.0);
+    *vy = CHASSIS_NORMAL_MAX_VY*(RC_CH0_RLR_OFFSET/660.0);
+    *vz = 0;
+}*/
+void chassisAloneHandleFun(float* vx, float *vy, float* vz, float* none)
+{
+    *vx = CHASSIS_NORMAL_MAX_VX*(RC_CH1_RUD_OFFSET/660.0);
+    *vy = CHASSIS_NORMAL_MAX_VY*(RC_CH0_RLR_OFFSET/660.0);
+    *vz = 0;
+	
+	float yawInc, pitInc;
+		yawInc = 0.38*MOUSE_X_MOVE_SPEED;
+		pitInc = 0.38*MOUSE_Y_MOVE_SPEED;
+		
+	if(s16_abs(RC_CH2_LLR_OFFSET) > 20)
+		yawInc += 0.001*RC_CH2_LLR_OFFSET;
+	if(s16_abs(RC_CH3_LUD_OFFSET) > 20)
+		pitInc = 0.001*RC_CH3_LUD_OFFSET;
+	
+	if(GIMBAL_FIRST_CH2_MID && GIMBAL_FIRST_MOUSE_X_STOP)
+		*yawExp = gimbalTaskStructure.yawMotor.angle[GYRO];
+	else
+		*yawExp += yawInc;
+
+	if(GIMBAL_FIRST_CH3_MID && GIMBAL_FIRST_MOUSE_Y_STOP)
+		*pitExp = gimbalTaskStructure.pitchMotor.angle[GYRO];
+	else
+		*pitExp += pitInc;
+}

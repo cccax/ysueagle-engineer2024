@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes" ?>
+<JScopeProject>
+    <FileVersion major="1" minor="1" />
+    <Project>
+        <Configuration>
+            <JLink>
+                <Options Connection="1" IsRTTSession="0" IsRTTWithTimeStamp="0" SamplingPeriod="100" SerialNo="0" JTAG_IRPre="0" JTAG_DRPre="0" IP="" TargetDevice="STM32F427II" TargetInterface="SWD" InterfaceSpeed="4000" />
+            </JLink>
+            <ElfFile Name="E:\KeilDocu\engineer2023Modified4\Project\Objects\Engineer.axf" />
+            <Scope>
+                <Options TimeResolutionUs="1000000" />
+            </Scope>
+        </Configuration>
+        <Windows>
+            <Graph Show="1" />
+            <Watch Show="1" />
+        </Windows>
+        <SelectedSymbols>
+            <Symbol>
+                <Options Name="setEcd" Address="0x2000005C" Type="short" TypeID="11" Size="2" GraphColorRed="255" GraphColorGreen="0" GraphColorBlue="0" YMinSampled="1.79769e+308" YMaxSampled="-1.79769e+308" YAvgSampled="0" Offset="0" ShowInGraph="1" YOffset="0" IsAutoConfig="0" YResolution="1" MaxValue="32767" File="..\User\APP\grab_task\grab_task.c" Scope="0" DrawStyle="0" NameWithParents="setEcd" />
+            </Symbol>
+            <Symbol>
+                <Options Name="realEcd" Address="0x2000005E" Type="short" TypeID="11" Size="2" GraphColorRed="0" GraphColorGreen="0" GraphColorBlue="255" YMinSampled="1.79769e+308" YMaxSampled="-1.79769e+308" YAvgSampled="0" Offset="0" ShowInGraph="1" YOffset="0" IsAutoConfig="0" YResolution="1" MaxValue="32767" File="..\User\APP\grab_task\grab_task.c" Scope="0" DrawStyle="0" NameWithParents="realEcd" />
+            </Symbol>
+            <Symbol>
+                <Options Name="setspeed_grab" Address="0x20000058" Type="short" TypeID="11" Size="2" GraphColorRed="0" GraphColorGreen="255" GraphColorBlue="0" YMinSampled="1.79769e+308" YMaxSampled="-1.79769e+308" YAvgSampled="0" Offset="0" ShowInGraph="1" YOffset="0" IsAutoConfig="0" YResolution="1" MaxValue="32767" File="..\User\APP\grab_task\grab_task.c" Scope="0" DrawStyle="0" NameWithParents="setspeed_grab" />
+            </Symbol>
+            <Symbol>
+                <Options Name="realspeed_grab" Address="0x2000005A" Type="short" TypeID="11" Size="2" GraphColorRed="255" GraphColorGreen="255" GraphColorBlue="0" YMinSampled="1.79769e+308" YMaxSampled="-1.79769e+308" YAvgSampled="0" Offset="0" ShowInGraph="1" YOffset="0" IsAutoConfig="0" YResolution="1" MaxValue="32767" File="..\User\APP\grab_task\grab_task.c" Scope="0" DrawStyle="0" NameWithParents="realspeed_grab" />
+            </Symbol>
+        </SelectedSymbols>
+    </Project>
+</JScopeProject>

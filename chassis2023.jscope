@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes" ?>
+<JScopeProject>
+    <FileVersion major="1" minor="1" />
+    <Project>
+        <Configuration>
+            <JLink>
+                <Options IsRTTSession="0" IsRTTWithTimeStamp="1" SamplingPeriod="100" Connection="1" SerialNo="0" IP="" TargetDevice="unspecified" TargetInterface="SWD" InterfaceSpeed="4000" />
+            </JLink>
+            <ElfFile Name="E:\KeilDocu\engineer2023\Project\Objects\Engineer.axf" />
+            <DataFile Name="" />
+            <RawFile Name="" />
+            <Scope>
+                <Options TimeResolutionUs="500000" />
+            </Scope>
+        </Configuration>
+        <Windows>
+            <Graph Show="1" />
+            <Watch Show="1" />
+        </Windows>
+        <SelectedSymbols>
+            <Symbol>
+                <Options Name="real_speed_1" Address="0x2000002C" Type="short" TypeID="11" Size="2" GraphColorRed="255" GraphColorGreen="215" GraphColorBlue="0" YMinSampled="-238" YMaxSampled="238" YAvgSampled="16" Offset="4" ShowInGraph="1" YOffset="200" IsAutoConfig="0" YResolution="200" MaxValue="20000" File="..\User\APP\chassis_task\chassis_task.c" Scope="0" DrawStyle="0" />
+            </Symbol>
+            <Symbol>
+                <Options Name="real_speed_2" Address="0x20000030" Type="short" TypeID="11" Size="2" GraphColorRed="0" GraphColorGreen="255" GraphColorBlue="0" YMinSampled="-410" YMaxSampled="296" YAvgSampled="-16" Offset="6" ShowInGraph="0" YOffset="200" IsAutoConfig="1" YResolution="200" MaxValue="400" File="..\User\APP\chassis_task\chassis_task.c" Scope="0" DrawStyle="0" />
+            </Symbol>
+            <Symbol>
+                <Options Name="real_speed_3" Address="0x20000034" Type="short" TypeID="11" Size="2" GraphColorRed="0" GraphColorGreen="0" GraphColorBlue="255" YMinSampled="-238" YMaxSampled="237" YAvgSampled="16" Offset="8" ShowInGraph="1" YOffset="200" IsAutoConfig="1" YResolution="200" MaxValue="400" File="..\User\APP\chassis_task\chassis_task.c" Scope="0" DrawStyle="0" />
+            </Symbol>
+            <Symbol>
+                <Options Name="real_speed_4" Address="0x20000038" Type="short" TypeID="11" Size="2" GraphColorRed="160" GraphColorGreen="32" GraphColorBlue="240" YMinSampled="-407" YMaxSampled="293" YAvgSampled="-16" Offset="10" ShowInGraph="0" YOffset="200" IsAutoConfig="0" YResolution="200" MaxValue="2" File="..\User\APP\chassis_task\chassis_task.c" Scope="0" DrawStyle="0" />
+            </Symbol>
+            <Symbol>
+                <Options Name="set_speed_1" Address="0x2000002A" Type="short" TypeID="11" Size="2" GraphColorRed="255" GraphColorGreen="0" GraphColorBlue="0" YMinSampled="-294" YMaxSampled="400" YAvgSampled="16" Offset="12" ShowInGraph="0" YOffset="200" IsAutoConfig="0" YResolution="200" MaxValue="10000" File="..\User\APP\chassis_task\chassis_task.c" Scope="0" DrawStyle="0" />
+            </Symbol>
+            <Symbol>
+                <Options Name="set_speed_2" Address="0x2000002E" Type="short" TypeID="11" Size="2" GraphColorRed="0" GraphColorGreen="191" GraphColorBlue="255" YMinSampled="-400" YMaxSampled="294" YAvgSampled="-16" Offset="14" ShowInGraph="0" YOffset="200" IsAutoConfig="1" YResolution="200" MaxValue="400" File="..\User\APP\chassis_task\chassis_task.c" Scope="0" DrawStyle="0" />
+            </Symbol>
+            <Symbol>
+                <Options Name="set_speed_3" Address="0x20000032" Type="short" TypeID="11" Size="2" GraphColorRed="0" GraphColorGreen="100" GraphColorBlue="0" YMinSampled="-294" YMaxSampled="400" YAvgSampled="16" Offset="16" ShowInGraph="0" YOffset="200" IsAutoConfig="1" YResolution="200" MaxValue="400" File="..\User\APP\chassis_task\chassis_task.c" Scope="0" DrawStyle="0" />
+            </Symbol>
+            <Symbol>
+                <Options Name="set_speed_4" Address="0x20000036" Type="short" TypeID="11" Size="2" GraphColorRed="205" GraphColorGreen="133" GraphColorBlue="63" YMinSampled="-400" YMaxSampled="294" YAvgSampled="-16" Offset="18" ShowInGraph="0" YOffset="200" IsAutoConfig="1" YResolution="200" MaxValue="400" File="..\User\APP\chassis_task\chassis_task.c" Scope="0" DrawStyle="0" />
+            </Symbol>
+        </SelectedSymbols>
+    </Project>
+</JScopeProject>
